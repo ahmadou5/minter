@@ -1,17 +1,85 @@
+import Moralis from 'moralis';
 import Head from 'next/head'
+import { useState } from 'react'
+import { useMoralis, useMoralisFile, useRaribleLazyMint } from 'react-moralis';
 
-export default function UploadForm() {
+export default function UploadForm({ logout,}) {
+    const {user} = useMoralis   ()
+    const [input, setInput] = useState({
+      nftName: '',
+      description: '' 
+    });
+
+    const [inputFile,setInputFile] = useState(null);
+
+    const handleOnchange = (e) => {
+      setInput(prevState => ({
+        ...prevState,
+        [e.target.name]: e.target.value
+      }))
+    }
+
+    const {saveFile} =useMoralisFile()
+
+    const {lazyMint} = useRaribleLazyMint({
+      chain: 'rinkeby',
+      userAddress: user.get('ethAddress') ,
+      tokenType: 'ERC1155',
+      supply: 1,
+      royaltiesAmount: 30
+    })
+    
+  
     return (
         <>
         <Head>
             <title>NFT Minter</title>
         </Head>
         <div className='w-screen h-auto flex justify-end items-center'>
-            <button type="button" className='mt-6 mr-10 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-black hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'>Logout</button>
+            <button type="button" onClick={logout} className='mt-6 mr-10 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-black hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'>Logout</button>
         </div>
         <div className="flex items-center justify-center overflow-y-hidden">
             <div className="w-2/3 max-w-screen mt-6">
-              <form>
+              <form onSubmit={async(e) => {
+                e.preventDefault()
+                if(inputFile !== null && input.nftName.trim() !== '' && input.description.trim() !== '') {
+                  await saveFile(input.nftName, inputFile, {
+                    saveIPFS: true,
+                    onSuccess:async (file) => {
+                      let metadata = {
+                        name: input.nftName,
+                        description: input.description,
+                        image: '/ipfs/' + file._hash
+                      }
+                      await saveFile(`metadata ${input.nftName}`, {
+                        base64: btoa(JSON.stringify(metadata))
+                      },{
+                        saveIPFS: true,
+                        onSuccess: async (metadataFile) => {
+                          await Moralis.enableWeb3()
+                          await lazyMint({
+                            params:{
+                              tokenUri: '/ipfs/' + metadataFile._hash
+                            },
+                            onSuccess: (res) => {
+                              let token_address = res.data.result.tokenAddress;
+                              let token_id = res.data.result.tokenId;
+                              let url = `https://rinkeby.rarible.com/${token_address}:${token_id}`
+                              alert('You can view your NFT on: ',url)
+                            }
+                          })
+                        }
+                      })
+                    },
+                    onError: (error)=> {
+                      console.log(error)
+                    }
+
+                  })
+                }
+
+
+              }}>
                 <div className="shadow sm:rounded-md sm:overflow-hidden">
                   <div className="px-4 py-5 bg-white space-y-6 sm:p-6">
                     <div className="grid grid-cols-3 gap-6">
@@ -19,13 +87,16 @@ export default function UploadForm() {
                         <label htmlFor="nftName" className="block text-sm font-medium text-gray-700">
                           NFT Name
                         </label>
+                        
                         <div className="mt-1 flex rounded-md shadow-sm">
                           <input
                             type="text"
                             name="nftName"
                             id="nftName"
                             className="focus:ring-indigo-500 focus:border-indigo-500 flex-1 block w-full rounded-md sm:text-sm border-gray-300"
-                            placeholder="theItalianDev NFT"
+                            placeholder=" NFT Name here"
+                            value={input.nftName}
+                            onChange={e => handleOnchange(e)}
                           />
                         </div>
                       </div>
@@ -41,7 +112,9 @@ export default function UploadForm() {
                           name="description"
                           rows={3}
                           className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 mt-1 block w-full sm:text-sm border border-gray-300 rounded-md"
-                          placeholder="The only NFT you need to have in your wallet"
+                          placeholder="NFT description here"
+                          value={input.description}
+                          onChange={e => handleOnchange(e)}
                         />
                       </div>
                       <p className="mt-2 text-sm text-gray-500">
@@ -53,7 +126,8 @@ export default function UploadForm() {
                       <label className="block text-sm font-medium text-gray-700">NFT file</label>
                       <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
                         <div className="space-y-1 text-center">
-                          <svg
+                          {inputFile !== null ? (<p>{inputFile.name}</p>) : (
+                            <svg
                             className="mx-auto h-12 w-12 text-gray-400"
                             stroke="currentColor"
                             fill="none"
@@ -66,14 +140,17 @@ export default function UploadForm() {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             />
-                          </svg>
+                           </svg>
+
+                          )}
+                          
                           <div className="flex text-sm text-gray-600">
                             <label
                               htmlFor="file-upload"
                               className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
                             >
                               <span>Upload your NFT</span>
-                              <input id="file-upload" name="file-upload" type="file" className="sr-only" />
+                              <input id="file-upload" onChange={(e) => setInputFile(e.target.files[0])} name="file-upload" type="file" className="sr-only" />
                             </label>
                           </div>
                           <p className="text-xs text-gray-500">PNG, JPG, GIF...</p>
@@ -86,7 +163,7 @@ export default function UploadForm() {
                       type="submit"
                       className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                     >
-                      Lazy-Mint now!
+                      Mint now!
                     </button>
                   </div>
                 </div>
